@@ -7,7 +7,7 @@ export default function SiteDetail() {
   const nav = useNavigate();
   const [site, setSite] = useState<Site | null>(null);
   const [recipients, setRecipients] = useState<Recipient[]>([]);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(false); // auto-open edit if no selectors yet
   const [form, setForm] = useState({ name: '', url: '', listSelector: '', titleSelector: '', linkSelector: '', renderMode: 'static' });
   const [filterForm, setFilterForm] = useState({ keyword: '', recipientId: '' });
   const [saving, setSaving] = useState(false);
@@ -17,6 +17,7 @@ export default function SiteDetail() {
     api.getSite(parseInt(id!)).then((s) => {
       setSite(s);
       setForm({ name: s.name, url: s.url, listSelector: s.listSelector, titleSelector: s.titleSelector, linkSelector: s.linkSelector, renderMode: s.renderMode });
+      if (!s.listSelector) setEditing(true); // auto-open edit for freshly imported sites
     });
     api.getRecipients().then(setRecipients);
   };

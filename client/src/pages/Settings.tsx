@@ -83,7 +83,13 @@ export default function Settings() {
 
       <div className="card">
         <h2 style={{ fontWeight: 700, fontSize: 16, marginBottom: 16 }}>Test email</h2>
-        <p style={{ fontSize: 14, color: '#64748b', marginBottom: 12 }}>Send a test email to confirm your SMTP settings are working.</p>
+        <p style={{ fontSize: 14, color: '#64748b', marginBottom: 4 }}>Send a test email to confirm your SMTP settings are working.</p>
+        <p style={{ fontSize: 13, color: '#94a3b8', marginBottom: 12 }}>
+          Using Gmail? You need an <strong>App Password</strong>, not your regular password.{' '}
+          Enable 2-Step Verification on your Google account, then generate one at{' '}
+          <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer">myaccount.google.com/apppasswords</a>.
+          Set <code>SMTP_PASS</code> to that 16-character code.
+        </p>
         <div style={{ display: 'flex', gap: 8 }}>
           <input
             type="email"
