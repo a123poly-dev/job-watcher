@@ -33,6 +33,7 @@ export const api = {
       body: JSON.stringify(data),
     }),
   checkSiteNow: (id: number) => req(`/sites/${id}/check`, { method: 'POST' }),
+  getSiteListings: (id: number) => req<SeenListing[]>(`/sites/${id}/listings`),
 
   // Filters
   createFilter: (data: { siteId: number; keyword: string; recipientId: number }) =>
@@ -93,6 +94,16 @@ export interface ActivityLogEntry {
   type: string;
   detail: string;
   createdAt: string;
+}
+
+export interface SeenListing {
+  id: number;
+  siteId: number;
+  fingerprint: string;
+  title: string;
+  url: string;
+  firstSeenAt: string;
+  isBaseline: boolean;
 }
 
 export interface NotificationLogEntry {

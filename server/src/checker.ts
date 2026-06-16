@@ -70,11 +70,13 @@ export async function checkSite(siteId: number) {
     if (listings.length === 0) {
       await prisma.site.update({
         where: { id: siteId },
-        data: { lastCheckedAt: new Date(), lastStatus: 'error: no listings found' },
+        data: { lastCheckedAt: new Date(), lastStatus: 'no listings' },
       });
       return;
     }
 
+    // First-ever check: mark all existing listings as baseline (they predate our tracking)
+    const isFirstCheck = site.lastCheckedAt === null;
     const newListings: typeof listings = [];
 
     for (const listing of listings) {
@@ -85,9 +87,9 @@ export async function checkSite(siteId: number) {
 
       if (!existing) {
         await prisma.seenListing.create({
-          data: { siteId, fingerprint: fp, title: listing.title, url: listing.url },
+          data: { siteId, fingerprint: fp, title: listing.title, url: listing.url, isBaseline: isFirstCheck },
         });
-        newListings.push(listing);
+        if (!isFirstCheck) newListings.push(listing);
       }
     }
 
@@ -125,7 +127,7 @@ export async function checkSite(siteId: number) {
 
     await prisma.site.update({
       where: { id: siteId },
-      data: { lastCheckedAt: new Date(), lastStatus: `ok: ${listings.length} listings found` },
+      data: { lastCheckedAt: new Date(), lastStatus: `ok: ${listings.length} positions` },
     });
   } catch (err: any) {
     const msg = err?.message || String(err);

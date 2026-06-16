@@ -28,6 +28,9 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-danger { background: #dc2626; color: white; }
 .btn-ghost { background: #e2e8f0; color: #334155; }
 .btn-sm { padding: 4px 10px; font-size: 13px; }
+.btn-icon { background: none; border: 1px solid #e2e8f0; color: #64748b; padding: 4px 8px; font-size: 13px; border-radius: 6px; }
+.btn-icon:hover { background: #f1f5f9; opacity: 1; }
+.btn-icon.danger:hover { background: #fee2e2; color: #dc2626; border-color: #fca5a5; }
 
 input, select, textarea {
   font-family: inherit;
@@ -51,12 +54,21 @@ label { font-size: 13px; font-weight: 500; color: #475569; display: block; margi
   padding: 20px;
 }
 
-.page { max-width: 900px; margin: 0 auto; padding: 32px 20px; }
+/* Company card with hover-reveal actions */
+.company-card { position: relative; }
+.company-card .card-actions {
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+.company-card:hover .card-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
 
+.page { max-width: 960px; margin: 0 auto; padding: 28px 20px; }
 .page-title { font-size: 22px; font-weight: 700; margin-bottom: 24px; }
-
 .form-row { margin-bottom: 14px; }
-
 .status-ok { color: #16a34a; font-size: 13px; }
 .status-error { color: #dc2626; font-size: 13px; }
 
@@ -72,5 +84,4 @@ label { font-size: 13px; font-weight: 500; color: #475569; display: block; margi
   font-weight: 500;
 }
 .tag.paused { background: #f1f5f9; color: #64748b; }
-
 .empty-state { text-align: center; color: #94a3b8; padding: 48px 0; font-size: 15px; }

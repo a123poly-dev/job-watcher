@@ -61,6 +61,7 @@ model SeenListing {
   title       String
   url         String
   firstSeenAt DateTime @default(now())
+  isBaseline  Boolean  @default(false)
 
   site Site @relation(fields: [siteId], references: [id])
 

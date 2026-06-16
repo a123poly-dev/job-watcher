@@ -13,6 +13,19 @@ router.post('/', async (req, res) => {
 
   if (!site || !recipient) return res.status(400).json({ error: 'Invalid siteId or recipientId' });
 
+  // Duplicate check: same keyword (case-insensitive) + same recipient on this site
+  const duplicate = await prisma.filter.findFirst({
+    where: {
+      siteId,
+      recipientId,
+      archivedAt: null,
+      keyword: keyword.trim().toLowerCase(),
+    },
+  });
+  if (duplicate) {
+    return res.status(409).json({ error: `"${keyword || 'any'}" is already set for ${recipient.email} on this site` });
+  }
+
   const filter = await prisma.filter.create({
     data: { siteId, keyword, recipientId },
     include: { recipient: true },

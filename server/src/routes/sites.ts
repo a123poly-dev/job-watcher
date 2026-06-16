@@ -47,6 +47,16 @@ router.get('/:id', async (req, res) => {
   res.json(site);
 });
 
+router.get('/:id/listings', async (req, res) => {
+  const siteId = parseInt(req.params.id);
+  const listings = await prisma.seenListing.findMany({
+    where: { siteId },
+    orderBy: { firstSeenAt: 'desc' },
+    take: 100,
+  });
+  res.json(listings);
+});
+
 // Preview: fetch page, extract listings with AI
 router.post('/preview', async (req, res) => {
   const { url } = req.body;
