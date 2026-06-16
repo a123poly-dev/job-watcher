@@ -1,0 +1,92 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Site {
+  id                   Int       @id @default(autoincrement())
+  name                 String
+  url                  String
+  listSelector         String
+  titleSelector        String
+  linkSelector         String
+  renderMode           String    @default("static") // 'static' | 'browser'
+  checkIntervalMinutes Int?
+  lastCheckedAt        DateTime?
+  lastStatus           String?   // 'ok' | 'error: <message>'
+  createdAt            DateTime  @default(now())
+  archivedAt           DateTime?
+
+  filters      Filter[]
+  seenListings SeenListing[]
+
+  @@map("sites")
+}
+
+model Recipient {
+  id        Int      @id @default(autoincrement())
+  label     String
+  email     String   @unique
+  createdAt DateTime @default(now())
+
+  filters Filter[]
+
+  @@map("recipients")
+}
+
+model Filter {
+  id         Int       @id @default(autoincrement())
+  siteId     Int
+  keyword    String
+  recipientId Int
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  archivedAt DateTime?
+
+  site      Site      @relation(fields: [siteId], references: [id])
+  recipient Recipient @relation(fields: [recipientId], references: [id])
+  notifications NotificationLogEntry[]
+
+  @@map("filters")
+}
+
+model SeenListing {
+  id          Int      @id @default(autoincrement())
+  siteId      Int
+  fingerprint String
+  title       String
+  url         String
+  firstSeenAt DateTime @default(now())
+
+  site Site @relation(fields: [siteId], references: [id])
+
+  @@unique([siteId, fingerprint])
+  @@map("seen_listings")
+}
+
+model ActivityLogEntry {
+  id        Int      @id @default(autoincrement())
+  type      String   // site_added | site_removed | filter_added | filter_removed | filter_edited
+  detail    String
+  createdAt DateTime @default(now())
+
+  @@map("activity_log")
+}
+
+model NotificationLogEntry {
+  id           Int      @id @default(autoincrement())
+  filterId     Int
+  listingTitle String
+  listingUrl   String
+  sentToEmail  String
+  sentAt       DateTime @default(now())
+  success      Boolean
+
+  filter Filter @relation(fields: [filterId], references: [id])
+
+  @@map("notification_log")
+}
