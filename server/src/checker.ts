@@ -1,31 +1,76 @@
 import crypto from 'crypto';
+import axios from 'axios';
 import prisma from './db';
-import { scrapeStatic } from './scraper/static';
 import { scrapeBrowser } from './scraper/browser';
+import { extractListingsHeuristic } from './scraper/heuristic';
 import { sendJobAlert } from './mailer';
 
 function fingerprint(title: string, url: string) {
   return crypto.createHash('md5').update(`${title}|${url}`).digest('hex');
 }
 
+async function fetchAndExtract(site: { url: string; renderMode: string }) {
+  let html: string;
+
+  if (site.renderMode === 'browser') {
+    const { chromium } = await import('playwright');
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    await page.goto(site.url, { waitUntil: 'networkidle', timeout: 30000 });
+    html = await page.content();
+    await browser.close();
+  } else {
+    try {
+      const { data } = await axios.get(site.url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; JobWatcher/1.0)' },
+        timeout: 15000,
+      });
+      html = data;
+
+      // If page looks empty/shell, retry with browser
+      if (typeof html !== 'string' || html.length < 1000) {
+        throw new Error('Page content too short, likely JS-rendered');
+      }
+    } catch {
+      // Fall back to Playwright
+      const { chromium } = await import('playwright');
+      const browser = await chromium.launch({ headless: true });
+      const page = await browser.newPage();
+      await page.goto(site.url, { waitUntil: 'networkidle', timeout: 30000 });
+      html = await page.content();
+      await browser.close();
+
+      // Remember this site needs browser mode
+      await prisma.site.updateMany({
+        where: { url: site.url },
+        data: { renderMode: 'browser' },
+      });
+    }
+  }
+
+  return extractListingsHeuristic(html, site.url);
+}
+
 export async function checkSite(siteId: number) {
   const site = await prisma.site.findUnique({
     where: { id: siteId },
-    include: { filters: { where: { isActive: true, archivedAt: null }, include: { recipient: true } } },
+    include: {
+      filters: {
+        where: { isActive: true, archivedAt: null },
+        include: { recipient: true },
+      },
+    },
   });
 
   if (!site || site.archivedAt) return;
 
   try {
-    let listings =
-      site.renderMode === 'browser'
-        ? await scrapeBrowser(site.url, site.listSelector, site.titleSelector, site.linkSelector)
-        : await scrapeStatic(site.url, site.listSelector, site.titleSelector, site.linkSelector);
+    const listings = await fetchAndExtract(site);
 
     if (listings.length === 0) {
       await prisma.site.update({
         where: { id: siteId },
-        data: { lastCheckedAt: new Date(), lastStatus: 'error: selectors matched 0 elements' },
+        data: { lastCheckedAt: new Date(), lastStatus: 'error: no listings found' },
       });
       return;
     }
@@ -80,7 +125,7 @@ export async function checkSite(siteId: number) {
 
     await prisma.site.update({
       where: { id: siteId },
-      data: { lastCheckedAt: new Date(), lastStatus: 'ok' },
+      data: { lastCheckedAt: new Date(), lastStatus: `ok: ${listings.length} listings found` },
     });
   } catch (err: any) {
     const msg = err?.message || String(err);

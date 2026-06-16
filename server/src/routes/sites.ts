@@ -1,19 +1,37 @@
 import { Router } from 'express';
+import axios from 'axios';
 import prisma from '../db';
-import { scrapeStatic } from '../scraper/static';
-import { scrapeBrowser } from '../scraper/browser';
+import { extractListingsHeuristic } from '../scraper/heuristic';
 import { checkSite } from '../checker';
 
 const router = Router();
+
+async function fetchHtml(url: string): Promise<{ html: string; renderMode: 'static' | 'browser' }> {
+  try {
+    const { data } = await axios.get(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; JobWatcher/1.0)' },
+      timeout: 15000,
+    });
+    if (typeof data === 'string' && data.length > 500) {
+      return { html: data, renderMode: 'static' };
+    }
+  } catch { /* fall through to browser */ }
+
+  // Fall back to Playwright for JS-rendered pages
+  const { chromium } = await import('playwright');
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+  const html = await page.content();
+  await browser.close();
+  return { html, renderMode: 'browser' };
+}
 
 router.get('/', async (_req, res) => {
   const sites = await prisma.site.findMany({
     where: { archivedAt: null },
     include: {
-      filters: {
-        where: { archivedAt: null },
-        include: { recipient: true },
-      },
+      filters: { where: { archivedAt: null }, include: { recipient: true } },
     },
     orderBy: { createdAt: 'desc' },
   });
@@ -23,40 +41,38 @@ router.get('/', async (_req, res) => {
 router.get('/:id', async (req, res) => {
   const site = await prisma.site.findUnique({
     where: { id: parseInt(req.params.id) },
-    include: {
-      filters: {
-        where: { archivedAt: null },
-        include: { recipient: true },
-      },
-    },
+    include: { filters: { where: { archivedAt: null }, include: { recipient: true } } },
   });
   if (!site) return res.status(404).json({ error: 'Not found' });
   res.json(site);
 });
 
-// Preview: try static first, fall back to browser
+// Preview: fetch page, extract listings with AI
 router.post('/preview', async (req, res) => {
-  const { url, listSelector, titleSelector, linkSelector } = req.body;
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'url is required' });
 
   try {
-    let listings = await scrapeStatic(url, listSelector, titleSelector, linkSelector);
-    if (listings.length > 0) {
-      return res.json({ listings: listings.slice(0, 20), renderMode: 'static' });
-    }
-
-    // Retry with browser
-    listings = await scrapeBrowser(url, listSelector, titleSelector, linkSelector);
-    return res.json({ listings: listings.slice(0, 20), renderMode: 'browser' });
+    const { html, renderMode } = await fetchHtml(url);
+    const listings = extractListingsHeuristic(html, url);
+    res.json({ listings: listings.slice(0, 20), renderMode });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 router.post('/', async (req, res) => {
-  const { name, url, listSelector, titleSelector, linkSelector, renderMode } = req.body;
+  const { name, url, renderMode } = req.body;
 
   const site = await prisma.site.create({
-    data: { name, url, listSelector, titleSelector, linkSelector, renderMode: renderMode || 'static' },
+    data: {
+      name,
+      url,
+      listSelector: '',
+      titleSelector: '',
+      linkSelector: '',
+      renderMode: renderMode || 'static',
+    },
   });
 
   await prisma.activityLogEntry.create({
@@ -68,11 +84,11 @@ router.post('/', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   const id = parseInt(req.params.id);
-  const { name, url, listSelector, titleSelector, linkSelector, renderMode, checkIntervalMinutes } = req.body;
+  const { name, url, renderMode, checkIntervalMinutes } = req.body;
 
   const site = await prisma.site.update({
     where: { id },
-    data: { name, url, listSelector, titleSelector, linkSelector, renderMode, checkIntervalMinutes },
+    data: { name, url, renderMode, checkIntervalMinutes },
   });
 
   res.json(site);
@@ -84,7 +100,6 @@ router.delete('/:id', async (req, res) => {
   if (!site) return res.status(404).json({ error: 'Not found' });
 
   await prisma.site.update({ where: { id }, data: { archivedAt: new Date() } });
-
   await prisma.activityLogEntry.create({
     data: { type: 'site_removed', detail: `Removed site "${site.name}"` },
   });
@@ -92,7 +107,6 @@ router.delete('/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
-// Trigger an immediate check
 router.post('/:id/check', async (req, res) => {
   const id = parseInt(req.params.id);
   checkSite(id).catch(console.error);

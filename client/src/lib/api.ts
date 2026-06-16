@@ -22,12 +22,12 @@ export const api = {
   // Sites
   getSites: () => req<Site[]>('/sites'),
   getSite: (id: number) => req<Site>(`/sites/${id}`),
-  createSite: (data: Omit<Site, 'id' | 'createdAt' | 'archivedAt' | 'lastCheckedAt' | 'lastStatus' | 'filters'>) =>
+  createSite: (data: { name: string; url: string; renderMode?: string }) =>
     req<Site>('/sites', { method: 'POST', body: JSON.stringify(data) }),
   updateSite: (id: number, data: Partial<Site>) =>
     req<Site>(`/sites/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteSite: (id: number) => req(`/sites/${id}`, { method: 'DELETE' }),
-  previewSite: (data: { url: string; listSelector: string; titleSelector: string; linkSelector: string }) =>
+  previewSite: (data: { url: string }) =>
     req<{ listings: { title: string; url: string }[]; renderMode: string }>('/sites/preview', {
       method: 'POST',
       body: JSON.stringify(data),

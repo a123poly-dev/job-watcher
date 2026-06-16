@@ -7,8 +7,12 @@ export default function SiteDetail() {
   const nav = useNavigate();
   const [site, setSite] = useState<Site | null>(null);
   const [recipients, setRecipients] = useState<Recipient[]>([]);
-  const [editing, setEditing] = useState(false); // auto-open edit if no selectors yet
-  const [form, setForm] = useState({ name: '', url: '', listSelector: '', titleSelector: '', linkSelector: '', renderMode: 'static' });
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState('');
+  const [url, setUrl] = useState('');
+  const [preview, setPreview] = useState<{ listings: { title: string; url: string }[]; renderMode: string } | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewError, setPreviewError] = useState('');
   const [filterForm, setFilterForm] = useState({ keyword: '', recipientId: '' });
   const [saving, setSaving] = useState(false);
   const [addingFilter, setAddingFilter] = useState(false);
@@ -16,20 +20,35 @@ export default function SiteDetail() {
   const load = () => {
     api.getSite(parseInt(id!)).then((s) => {
       setSite(s);
-      setForm({ name: s.name, url: s.url, listSelector: s.listSelector, titleSelector: s.titleSelector, linkSelector: s.linkSelector, renderMode: s.renderMode });
-      if (!s.listSelector) setEditing(true); // auto-open edit for freshly imported sites
+      setName(s.name);
+      setUrl(s.url);
     });
     api.getRecipients().then(setRecipients);
   };
 
   useEffect(() => { load(); }, [id]);
 
+  const runPreview = async () => {
+    setPreviewError('');
+    setPreviewing(true);
+    setPreview(null);
+    try {
+      const result = await api.previewSite({ url });
+      setPreview(result);
+    } catch (err: any) {
+      setPreviewError(err.message);
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
   const saveEdit = async (e: FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    await api.updateSite(parseInt(id!), form);
+    await api.updateSite(parseInt(id!), { name, url, renderMode: preview?.renderMode });
     setSaving(false);
     setEditing(false);
+    setPreview(null);
     load();
   };
 
@@ -48,7 +67,7 @@ export default function SiteDetail() {
   };
 
   const deleteFilter = async (filterId: number) => {
-    if (!confirm('Remove this filter?')) return;
+    if (!confirm('Remove this alert?')) return;
     await api.deleteFilter(filterId);
     load();
   };
@@ -62,49 +81,70 @@ export default function SiteDetail() {
       <div className="card" style={{ marginBottom: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <h1 className="page-title" style={{ marginBottom: 0 }}>{site.name}</h1>
-          <button className="btn-ghost btn-sm" onClick={() => setEditing(!editing)}>
+          <button className="btn-ghost btn-sm" onClick={() => { setEditing(!editing); setPreview(null); }}>
             {editing ? 'Cancel' : 'Edit'}
           </button>
         </div>
 
         {editing ? (
           <form onSubmit={saveEdit}>
-            {(['name', 'url', 'listSelector', 'titleSelector', 'linkSelector'] as const).map((k) => (
-              <div key={k} className="form-row">
-                <label>{k}</label>
-                <input value={form[k]} onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))} required />
-              </div>
-            ))}
             <div className="form-row">
-              <label>Render mode</label>
-              <select value={form.renderMode} onChange={(e) => setForm((f) => ({ ...f, renderMode: e.target.value }))}>
-                <option value="static">static</option>
-                <option value="browser">browser (Playwright)</option>
-              </select>
+              <label>Company name</label>
+              <input value={name} onChange={(e) => setName(e.target.value)} required />
             </div>
-            <button type="submit" className="btn-primary btn-sm" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+            <div className="form-row">
+              <label>Careers page URL</label>
+              <input value={url} onChange={(e) => setUrl(e.target.value)} required type="url" />
+            </div>
+            {previewError && <p className="status-error" style={{ marginBottom: 10 }}>{previewError}</p>}
+            {preview && (
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: 12, marginBottom: 14 }}>
+                <p style={{ fontSize: 13, color: '#166534', marginBottom: 6 }}>
+                  ✅ Found <strong>{preview.listings.length}</strong> job listings
+                </p>
+                <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {preview.listings.slice(0, 6).map((l, i) => (
+                    <li key={i} style={{ fontSize: 13, color: '#334155' }}>
+                      • <a href={l.url} target="_blank" rel="noopener noreferrer">{l.title}</a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="submit" className="btn-primary btn-sm" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+              <button type="button" className="btn-ghost btn-sm" onClick={runPreview} disabled={previewing || !url}>
+                {previewing ? '🔍 Scanning…' : '🔍 Preview jobs'}
+              </button>
+            </div>
           </form>
         ) : (
           <div style={{ fontSize: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div><span style={{ color: '#94a3b8' }}>URL:</span> <a href={site.url} target="_blank" rel="noopener noreferrer">{site.url}</a></div>
-            <div><span style={{ color: '#94a3b8' }}>List selector:</span> <code>{site.listSelector}</code></div>
-            <div><span style={{ color: '#94a3b8' }}>Title selector:</span> <code>{site.titleSelector}</code></div>
-            <div><span style={{ color: '#94a3b8' }}>Link selector:</span> <code>{site.linkSelector}</code></div>
-            <div><span style={{ color: '#94a3b8' }}>Render mode:</span> {site.renderMode}</div>
-            <div><span style={{ color: '#94a3b8' }}>Last status:</span> {site.lastStatus || '—'}</div>
+            <div>
+              <span style={{ color: '#94a3b8' }}>URL: </span>
+              <a href={site.url} target="_blank" rel="noopener noreferrer">{site.url}</a>
+            </div>
+            <div>
+              <span style={{ color: '#94a3b8' }}>Fetch mode: </span>
+              {site.renderMode === 'browser' ? 'Browser / Playwright (JavaScript-rendered)' : 'Static'}
+            </div>
+            <div>
+              <span style={{ color: '#94a3b8' }}>Last status: </span>
+              {site.lastStatus || '—'}
+            </div>
           </div>
         )}
       </div>
 
       <div className="card">
-        <h2 style={{ fontWeight: 700, fontSize: 16, marginBottom: 16 }}>Filters</h2>
+        <h2 style={{ fontWeight: 700, fontSize: 16, marginBottom: 16 }}>Alerts</h2>
 
         {site.filters && site.filters.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
             {site.filters.map((f) => (
               <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
                 <span style={{ flex: 1, fontSize: 14 }}>
-                  <strong>"{f.keyword || 'any'}"</strong> → {f.recipient?.email}
+                  Alert on <strong>{f.keyword ? `"${f.keyword}"` : 'any new listing'}</strong> → {f.recipient?.label} ({f.recipient?.email})
                   {!f.isActive && <span style={{ color: '#94a3b8', marginLeft: 8 }}>(paused)</span>}
                 </span>
                 <button className="btn-ghost btn-sm" onClick={() => toggleFilter(f.id, f.isActive)}>
@@ -118,15 +158,15 @@ export default function SiteDetail() {
 
         <form onSubmit={addFilter} style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
           <div style={{ flex: 1 }}>
-            <label>Keyword</label>
+            <label>Keyword to watch for</label>
             <input
               value={filterForm.keyword}
               onChange={(e) => setFilterForm((f) => ({ ...f, keyword: e.target.value }))}
-              placeholder="e.g. designer (blank = any)"
+              placeholder="e.g. designer — blank = any new listing"
             />
           </div>
           <div style={{ flex: 1 }}>
-            <label>Send to</label>
+            <label>Send alert to</label>
             <select
               value={filterForm.recipientId}
               onChange={(e) => setFilterForm((f) => ({ ...f, recipientId: e.target.value }))}
@@ -139,7 +179,7 @@ export default function SiteDetail() {
             </select>
           </div>
           <button type="submit" className="btn-primary" disabled={addingFilter || !filterForm.recipientId}>
-            {addingFilter ? '…' : 'Add filter'}
+            {addingFilter ? '…' : 'Add alert'}
           </button>
         </form>
 

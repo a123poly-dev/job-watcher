@@ -28,9 +28,6 @@ export default function BulkImportModal({ onClose, onDone }: Props) {
         await api.createSite({
           name: c.name,
           url: c.url,
-          listSelector: '',
-          titleSelector: '',
-          linkSelector: '',
           renderMode: c.renderMode || 'static',
         });
       } catch { /* skip duplicates */ }
