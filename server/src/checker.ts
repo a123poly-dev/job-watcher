@@ -67,7 +67,17 @@ export async function checkSite(siteId: number) {
   try {
     const listings = await fetchAndExtract(site);
 
-    if (listings.length === 0) {
+    // Filter scraped listings to only those matching active keyword filters.
+    // If all filters have blank keywords (= "any"), keep everything.
+    const activeKeywords = site.filters
+      .filter((f) => f.isActive && f.keyword.trim() !== '')
+      .map((f) => f.keyword.trim().toLowerCase());
+
+    const relevantListings = activeKeywords.length === 0
+      ? listings
+      : listings.filter((l) => activeKeywords.some((kw) => l.title.toLowerCase().includes(kw)));
+
+    if (relevantListings.length === 0) {
       await prisma.site.update({
         where: { id: siteId },
         data: { lastCheckedAt: new Date(), lastStatus: 'no listings' },
@@ -79,7 +89,7 @@ export async function checkSite(siteId: number) {
     const isFirstCheck = site.lastCheckedAt === null;
     const newListings: typeof listings = [];
 
-    for (const listing of listings) {
+    for (const listing of relevantListings) {
       const fp = fingerprint(listing.title, listing.url);
       const existing = await prisma.seenListing.findUnique({
         where: { siteId_fingerprint: { siteId, fingerprint: fp } },
@@ -127,7 +137,7 @@ export async function checkSite(siteId: number) {
 
     await prisma.site.update({
       where: { id: siteId },
-      data: { lastCheckedAt: new Date(), lastStatus: `ok: ${listings.length} positions` },
+      data: { lastCheckedAt: new Date(), lastStatus: `ok: ${relevantListings.length} positions` },
     });
   } catch (err: any) {
     const msg = err?.message || String(err);

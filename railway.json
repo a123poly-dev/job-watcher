@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "npm run build && npm run db:migrate --prefix server && npm run start",
+    "startCommand": "npm run start",
     "healthcheckPath": "/api/auth/me",
     "restartPolicyType": "ON_FAILURE"
   }

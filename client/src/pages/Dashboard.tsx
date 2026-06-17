@@ -97,6 +97,7 @@ function StatusBadge({ site }: { site: Site }) {
 // ── Main dashboard ─────────────────────────────────────────────────────────────
 type StatusFilter = 'all' | 'ok' | 'no_listings' | 'error' | 'unchecked';
 type AlertFilter = 'all' | 'with' | 'without';
+type RenderFilter = 'all' | 'static' | 'browser';
 
 export default function Dashboard() {
   const [sites, setSites] = useState<Site[]>([]);
@@ -107,14 +108,16 @@ export default function Dashboard() {
   const [checking, setChecking] = useState<number | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [showBulkFilter, setShowBulkFilter] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<Site | null>(null); // single delete
+  const [deleteTarget, setDeleteTarget] = useState<Site | null>(null);
   const [deleteBulk, setDeleteBulk] = useState(false);
+  const [deleteBulkAlerts, setDeleteBulkAlerts] = useState(false);
 
   // Search & filter
   const [search, setSearch] = useState('');
   const [keywordSearch, setKeywordSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [alertFilter, setAlertFilter] = useState<AlertFilter>('all');
+  const [renderFilter, setRenderFilter] = useState<RenderFilter>('all');
 
   const load = () => {
     api.getSites().then(setSites);
@@ -122,11 +125,16 @@ export default function Dashboard() {
   };
   useEffect(() => { load(); }, []);
 
+  const existingKeywords = useMemo(() => {
+    const kws = new Set<string>();
+    sites.forEach((s) => s.filters?.forEach((f) => { if (f.keyword) kws.add(f.keyword); }));
+    return [...kws].sort();
+  }, [sites]);
+
   const filtered = useMemo(() => sites.filter((s) => {
     if (search && !s.name.toLowerCase().includes(search.toLowerCase())) return false;
     if (keywordSearch) {
-      const kw = keywordSearch.toLowerCase();
-      const hasMatch = s.filters?.some((f) => f.keyword.toLowerCase().includes(kw));
+      const hasMatch = s.filters?.some((f) => f.keyword === keywordSearch);
       if (!hasMatch) return false;
     }
     if (statusFilter === 'ok' && !s.lastStatus?.startsWith('ok')) return false;
@@ -135,8 +143,10 @@ export default function Dashboard() {
     if (statusFilter === 'unchecked' && s.lastStatus) return false;
     if (alertFilter === 'with' && (!s.filters || s.filters.length === 0)) return false;
     if (alertFilter === 'without' && s.filters && s.filters.length > 0) return false;
+    if (renderFilter === 'static' && s.renderMode !== 'static') return false;
+    if (renderFilter === 'browser' && s.renderMode !== 'browser') return false;
     return true;
-  }), [sites, search, keywordSearch, statusFilter, alertFilter]);
+  }), [sites, search, keywordSearch, statusFilter, alertFilter, renderFilter]);
 
   const toggleSelect = (id: number) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const clearAll = () => setSelected(new Set());
@@ -158,6 +168,15 @@ export default function Dashboard() {
   const doBulkDelete = async () => {
     for (const id of selected) await api.deleteSite(id);
     setDeleteBulk(false);
+    clearAll();
+    load();
+  };
+
+  const doBulkDeleteAlerts = async () => {
+    for (const site of selectedSites) {
+      for (const f of site.filters ?? []) await api.deleteFilter(f.id);
+    }
+    setDeleteBulkAlerts(false);
     clearAll();
     load();
   };
@@ -203,12 +222,16 @@ export default function Dashboard() {
             placeholder="Search by company name…"
             style={{ maxWidth: 220, flex: '1 1 160px' }}
           />
-          <input
+          <select
             value={keywordSearch}
             onChange={(e) => setKeywordSearch(e.target.value)}
-            placeholder="Filter by keyword (e.g. designer)…"
-            style={{ maxWidth: 240, flex: '1 1 180px' }}
-          />
+            style={{ width: 'auto', flex: '0 0 auto' }}
+          >
+            <option value="">All keywords</option>
+            {existingKeywords.map((kw) => (
+              <option key={kw} value={kw}>{kw}</option>
+            ))}
+          </select>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)} style={{ width: 'auto', flex: '0 0 auto' }}>
             <option value="all">All statuses</option>
             <option value="ok">✅ Positions found</option>
@@ -221,8 +244,13 @@ export default function Dashboard() {
             <option value="with">With alerts</option>
             <option value="without">Without alerts</option>
           </select>
-          {(search || keywordSearch || statusFilter !== 'all' || alertFilter !== 'all') && (
-            <button className="btn-ghost btn-sm" onClick={() => { setSearch(''); setKeywordSearch(''); setStatusFilter('all'); setAlertFilter('all'); }}>Clear</button>
+          <select value={renderFilter} onChange={(e) => setRenderFilter(e.target.value as RenderFilter)} style={{ width: 'auto', flex: '0 0 auto' }}>
+            <option value="all">All fetch modes</option>
+            <option value="static">Static</option>
+            <option value="browser">Browser</option>
+          </select>
+          {(search || keywordSearch || statusFilter !== 'all' || alertFilter !== 'all' || renderFilter !== 'all') && (
+            <button className="btn-ghost btn-sm" onClick={() => { setSearch(''); setKeywordSearch(''); setStatusFilter('all'); setAlertFilter('all'); setRenderFilter('all'); }}>Clear</button>
           )}
         </div>
       )}
@@ -240,8 +268,9 @@ export default function Dashboard() {
           <span>{selected.size > 0 ? `${selected.size} selected` : 'Select all'}</span>
           {selected.size > 0 && (
             <>
-              <button className="btn-primary btn-sm" onClick={() => setShowBulkFilter(true)}>+ Add filter to selected</button>
-              <button className="btn-danger btn-sm" onClick={() => setDeleteBulk(true)}>Delete selected</button>
+              <button className="btn-primary btn-sm" onClick={() => setShowBulkFilter(true)}>+ Add alert to selected</button>
+              <button className="btn-ghost btn-sm" onClick={() => setDeleteBulkAlerts(true)} style={{ color: '#dc2626' }}>Delete alerts from selected</button>
+              <button className="btn-danger btn-sm" onClick={() => setDeleteBulk(true)}>Delete selected companies</button>
               <button className="btn-ghost btn-sm" onClick={clearAll}>Clear</button>
             </>
           )}
@@ -337,6 +366,15 @@ export default function Dashboard() {
           confirmLabel={`Delete ${selected.size} companies`}
           onConfirm={doBulkDelete}
           onCancel={() => setDeleteBulk(false)}
+        />
+      )}
+      {deleteBulkAlerts && (
+        <MathConfirmModal
+          title={`Delete all alerts from ${selected.size} companies?`}
+          description={`Removes all alert keywords from: ${selectedSites.map((s) => s.name).join(', ')}.`}
+          confirmLabel="Delete alerts"
+          onConfirm={doBulkDeleteAlerts}
+          onCancel={() => setDeleteBulkAlerts(false)}
         />
       )}
     </div>
