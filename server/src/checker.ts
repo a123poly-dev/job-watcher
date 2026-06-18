@@ -40,9 +40,15 @@ async function fetchAndExtract(site: { url: string; renderMode: string }) {
       });
       html = data;
 
-      // If page looks empty/shell, retry with browser
-      if (typeof html !== 'string' || html.length < 1000) {
-        throw new Error('Page content too short, likely JS-rendered');
+      // If page looks empty/shell or is a client-side SPA, retry with browser
+      const isSpaShell = typeof html === 'string' && (
+        html.includes('__NEXT_DATA__') ||       // Next.js
+        html.includes('data-reactroot') ||       // React
+        html.includes('window.__nuxt__') ||      // Nuxt.js
+        html.includes('id="__gatsby"')           // Gatsby
+      );
+      if (typeof html !== 'string' || html.length < 1000 || isSpaShell) {
+        throw new Error('Page content too short or SPA shell, likely JS-rendered');
       }
     } catch {
       // Fall back to Playwright

@@ -32,6 +32,7 @@ const JOB_PLATFORM_PATTERNS = [
   'myworkdayjobs.com',
   'oracle.com',
   'taleo.net',
+  'jobylon.com',    // emp.jobylon.com — Jobylon ATS
 ];
 
 function isJobPlatform(hostname: string): boolean {
@@ -132,6 +133,20 @@ export function extractListingsHeuristic(html: string, pageUrl: string): Listing
   const pageNorm = normaliseUrl(pageUrl, pageUrl);
   const seen = new Set<string>();
   const results: Listing[] = [];
+
+  // ─── Jobylon widget ─────────────────────────────────────────────────────────
+  // Jobylon embeds: each job is a div.jobylon-job containing a div.jobylon-job-title
+  // (not an anchor) and a sibling a.jobylon-apply-btn linking to emp.jobylon.com.
+  // The generic link extractor misses these because the apply button text is "Read more".
+  $('.jobylon-job').each((_, el) => {
+    const card = $(el);
+    const title = card.find('.jobylon-job-title').first().text().replace(/\s+/g, ' ').trim();
+    const href = card.find('a.jobylon-apply-btn').first().attr('href') || '';
+    const url = normaliseUrl(href, pageUrl);
+    if (!title || !url || isNavText(title) || seen.has(url)) return;
+    seen.add(url);
+    results.push({ title, url });
+  });
 
   $('a[href]').each((_, el) => {
     const href = $(el).attr('href') || '';
