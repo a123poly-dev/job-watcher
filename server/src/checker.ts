@@ -19,6 +19,8 @@ async function fetchAndExtract(site: { url: string; renderMode: string }) {
     try {
       await page.goto(site.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForTimeout(2000); // let JS settle
+      // Wait for any client-side data fetches (e.g. Greenhouse widget) to finish
+      await page.waitForLoadState('networkidle', { timeout: 6000 }).catch(() => {});
       html = await page.content();
     } catch {
       // Browser crashed or timed out — fall back to static fetch
@@ -49,6 +51,7 @@ async function fetchAndExtract(site: { url: string; renderMode: string }) {
       const page = await browser.newPage();
       await page.goto(site.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForTimeout(2000);
+      await page.waitForLoadState('networkidle', { timeout: 6000 }).catch(() => {});
       html = await page.content();
       await browser.close();
 
