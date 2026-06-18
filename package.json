@@ -4,7 +4,7 @@
   "scripts": {
     "dev": "concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
     "build": "npm install --prefix server && npm install --prefix client && npm run build --prefix client && npm run build --prefix server",
-    "start": "npm run db:migrate --prefix server && npm run start --prefix server",
+    "start": "npm run db:push --prefix server && npm run start --prefix server",
     "setup": "npm install --prefix server && npm install --prefix client && npm run db:push --prefix server && npx --prefix server playwright install chromium"
   },
   "devDependencies": {
