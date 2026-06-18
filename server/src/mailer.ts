@@ -1,14 +1,7 @@
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: process.env.SMTP_SECURE === 'true',
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
+const FROM = process.env.RESEND_FROM || 'Job Watcher <onboarding@resend.dev>';
 
 const openers = [
   "Oh my goodness, I have news for you!",
@@ -65,23 +58,15 @@ export async function sendJobAlert({
 
   const text = `${opener}\n\nI found something that might be perfect for you — "${listingTitle}" just went live on ${siteName}'s careers page.\n\nApply here: ${listingUrl}\n\n${closer}`;
 
-  await transporter.sendMail({
-    from: process.env.SMTP_FROM || process.env.SMTP_USER,
-    to: toEmail,
-    subject,
-    text,
-    html,
-  });
+  await resend.emails.send({ from: FROM, to: toEmail, subject, text, html });
 }
 
 export async function sendTestEmail(toEmail: string) {
-  await transporter.sendMail({
-    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+  await resend.emails.send({
+    from: FROM,
     to: toEmail,
     subject: '✅ Job Watcher — test email',
     text: 'Your email notifications are working correctly!',
     html: '<p>Your Job Watcher email notifications are working correctly! 🎉</p>',
   });
 }
-
-export { transporter };
