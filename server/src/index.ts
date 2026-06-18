@@ -1,9 +1,11 @@
 import 'dotenv/config';
 import express from 'express';
 import session from 'express-session';
+import FileStore from 'session-file-store';
 import cors from 'cors';
 import cron from 'node-cron';
 import path from 'path';
+import fs from 'fs';
 import authRoutes from './routes/auth';
 import sitesRoutes from './routes/sites';
 import filtersRoutes from './routes/filters';
@@ -16,13 +18,19 @@ const PORT = parseInt(process.env.PORT || '3001');
 const CHECK_INTERVAL_MINUTES = parseInt(process.env.CHECK_INTERVAL_MINUTES || '180');
 const isProd = process.env.NODE_ENV === 'production';
 
-// Railway (and most PaaS) sit behind a reverse proxy — required for secure cookies to work
+// Railway sits behind a reverse proxy — required for secure cookies to work
 if (isProd) app.set('trust proxy', 1);
+
+// Session file store — persists across restarts and multiple instances
+const SessionFileStore = FileStore(session);
+const sessionDir = process.env.SESSION_DIR || path.join(__dirname, '../../sessions');
+if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
 
 app.use(express.json());
 app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173', credentials: true }));
 app.use(
   session({
+    store: new SessionFileStore({ path: sessionDir, retries: 1, logFn: () => {} }),
     secret: process.env.SESSION_SECRET || 'job-watcher-secret-change-me',
     resave: false,
     saveUninitialized: false,

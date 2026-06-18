@@ -21,7 +21,8 @@
     "express-session": "^1.18.0",
     "node-cron": "^3.0.3",
     "nodemailer": "^6.9.10",
-    "playwright": "^1.41.2"
+    "playwright": "^1.41.2",
+    "session-file-store": "^1.5.0"
   },
   "devDependencies": {
     "@types/cheerio": "^0.22.35",
@@ -31,6 +32,7 @@
     "@types/node": "^20.11.16",
     "@types/node-cron": "^3.0.11",
     "@types/nodemailer": "^6.4.14",
+    "@types/session-file-store": "^1.2.6",
     "prisma": "^5.10.0",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.3.3"
