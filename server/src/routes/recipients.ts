@@ -14,8 +14,9 @@ router.post('/', async (req, res) => {
   try {
     const recipient = await prisma.recipient.create({ data: { label, email } });
     res.json(recipient);
-  } catch {
-    res.status(400).json({ error: 'Email already exists' });
+  } catch (err: any) {
+    const isDuplicate = err?.code === 'P2002';
+    res.status(400).json({ error: isDuplicate ? 'Email already exists' : (err?.message || String(err)) });
   }
 });
 
