@@ -127,17 +127,17 @@ function isJobLink(url: string, pageUrl: string): boolean {
 export function extractListingsHeuristic(html: string, pageUrl: string): Listing[] {
   const $ = cheerio.load(html);
 
-  // Remove structural chrome
-  $('header, footer, nav, .nav, .navbar, .navigation, .menu, .header, .footer, script, style, noscript, [role="navigation"], [role="banner"]').remove();
-
   const pageNorm = normaliseUrl(pageUrl, pageUrl);
   const seen = new Set<string>();
   const results: Listing[] = [];
 
-  // ─── Jobylon widget ─────────────────────────────────────────────────────────
-  // Jobylon embeds: each job is a div.jobylon-job containing a div.jobylon-job-title
-  // (not an anchor) and a sibling a.jobylon-apply-btn linking to emp.jobylon.com.
-  // The generic link extractor misses these because the apply button text is "Read more".
+  // ─── ATS widget pre-passes (must run BEFORE DOM cleanup) ────────────────────
+  // Some ATS widgets place job titles inside <header> and apply links inside
+  // <footer> elements within each job card. The DOM cleanup below removes all
+  // header/footer elements, so these pre-passes must run first.
+
+  // Jobylon widget: div.jobylon-job > div.jobylon-job-title + a.jobylon-apply-btn
+  // Apply button text is "Read more" — not the job title.
   $('.jobylon-job').each((_, el) => {
     const card = $(el);
     const title = card.find('.jobylon-job-title').first().text().replace(/\s+/g, ' ').trim();
@@ -147,6 +147,23 @@ export function extractListingsHeuristic(html: string, pageUrl: string): Listing
     seen.add(url);
     results.push({ title, url });
   });
+
+  // Ashby widget: article[typeof="JobPosting"] with h3 title in <header>
+  // and apply link in <footer> — both of which get removed by the cleanup below.
+  $('article[typeof="JobPosting"]').each((_, el) => {
+    const card = $(el);
+    const title = card.find('h1, h2, h3, h4').first().text().replace(/\s+/g, ' ').trim();
+    // Prefer the canonical job URL (without /application suffix)
+    const href = card.find('a[href*="ashbyhq.com"]:not([href*="/application"])').first().attr('href') ||
+                 card.find('a[href*="ashbyhq.com"]').first().attr('href') || '';
+    const url = normaliseUrl(href, pageUrl);
+    if (!title || !url || isNavText(title) || seen.has(url)) return;
+    seen.add(url);
+    results.push({ title, url });
+  });
+
+  // Remove structural chrome
+  $('header, footer, nav, .nav, .navbar, .navigation, .menu, .header, .footer, script, style, noscript, [role="navigation"], [role="banner"]').remove();
 
   $('a[href]').each((_, el) => {
     const href = $(el).attr('href') || '';

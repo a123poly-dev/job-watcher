@@ -6,6 +6,20 @@ import { checkSite } from '../checker';
 
 const router = Router();
 
+async function fetchHtmlBrowser(url: string): Promise<string> {
+  const { chromium } = await import('playwright');
+  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+  const page = await browser.newPage();
+  try {
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(2000);
+    await page.waitForLoadState('networkidle', { timeout: 6000 }).catch(() => {});
+    return await page.content();
+  } finally {
+    await browser.close();
+  }
+}
+
 async function fetchHtml(url: string): Promise<{ html: string; renderMode: 'static' | 'browser' }> {
   try {
     const { data } = await axios.get(url, {
@@ -13,17 +27,16 @@ async function fetchHtml(url: string): Promise<{ html: string; renderMode: 'stat
       timeout: 15000,
     });
     if (typeof data === 'string' && data.length > 500) {
-      return { html: data, renderMode: 'static' };
+      // Detect client-side SPA shells — jobs won't be in the static HTML
+      const isSpaShell = data.includes('__NEXT_DATA__') || data.includes('data-reactroot') ||
+                         data.includes('window.__nuxt__') || data.includes('id="__gatsby"');
+      if (!isSpaShell) {
+        return { html: data, renderMode: 'static' };
+      }
     }
   } catch { /* fall through to browser */ }
 
-  // Fall back to Playwright for JS-rendered pages
-  const { chromium } = await import('playwright');
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
-  await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
-  const html = await page.content();
-  await browser.close();
+  const html = await fetchHtmlBrowser(url);
   return { html, renderMode: 'browser' };
 }
 
@@ -64,7 +77,20 @@ router.post('/preview', async (req, res) => {
 
   try {
     const { html, renderMode } = await fetchHtml(url);
-    const listings = extractListingsHeuristic(html, url);
+    let listings = extractListingsHeuristic(html, url);
+
+    // Static fetch returned no listings — JS may be required to render jobs.
+    // Try browser mode once to verify, and report the browser result if better.
+    if (listings.length === 0 && renderMode === 'static') {
+      try {
+        const browserHtml = await fetchHtmlBrowser(url);
+        const browserListings = extractListingsHeuristic(browserHtml, url);
+        if (browserListings.length > 0) {
+          return res.json({ listings: browserListings.slice(0, 20), renderMode: 'browser' });
+        }
+      } catch { /* browser failed — return 0 listings in static mode */ }
+    }
+
     res.json({ listings: listings.slice(0, 20), renderMode });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

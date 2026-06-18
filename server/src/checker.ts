@@ -11,6 +11,7 @@ function fingerprint(title: string, url: string) {
 
 async function fetchAndExtract(site: { url: string; renderMode: string }) {
   let html: string;
+  let usedBrowser = site.renderMode === 'browser';
 
   if (site.renderMode === 'browser') {
     const { chromium } = await import('playwright');
@@ -60,6 +61,7 @@ async function fetchAndExtract(site: { url: string; renderMode: string }) {
       await page.waitForLoadState('networkidle', { timeout: 6000 }).catch(() => {});
       html = await page.content();
       await browser.close();
+      usedBrowser = true;
 
       // Remember this site needs browser mode
       await prisma.site.updateMany({
@@ -69,7 +71,30 @@ async function fetchAndExtract(site: { url: string; renderMode: string }) {
     }
   }
 
-  return extractListingsHeuristic(html, site.url);
+  const listings = extractListingsHeuristic(html, site.url);
+
+  // If static mode returned 0 listings, do a one-time browser probe to check
+  // whether JS is needed to render jobs (e.g. Greenhouse XHR, non-SPA embeds).
+  // If browser finds listings, permanently upgrade the site to browser mode.
+  if (listings.length === 0 && !usedBrowser) {
+    try {
+      const { chromium } = await import('playwright');
+      const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+      const page = await browser.newPage();
+      await page.goto(site.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForTimeout(2000);
+      await page.waitForLoadState('networkidle', { timeout: 6000 }).catch(() => {});
+      const browserHtml = await page.content();
+      await browser.close();
+      const browserListings = extractListingsHeuristic(browserHtml, site.url);
+      if (browserListings.length > 0) {
+        await prisma.site.updateMany({ where: { url: site.url }, data: { renderMode: 'browser' } });
+        return browserListings;
+      }
+    } catch { /* browser probe failed — proceed with 0 */ }
+  }
+
+  return listings;
 }
 
 export async function checkSite(siteId: number) {
