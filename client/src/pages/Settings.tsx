@@ -8,6 +8,7 @@ export default function Settings() {
   const [testEmail, setTestEmail] = useState('');
   const [testStatus, setTestStatus] = useState('');
   const [testing, setTesting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
 
   const load = () => api.getRecipients().then(setRecipients);
   useEffect(() => { load(); }, []);
@@ -26,9 +27,9 @@ export default function Settings() {
     }
   };
 
-  const deleteRecipient = async (id: number, label: string) => {
-    if (!confirm(`Remove "${label}"?`)) return;
+  const deleteRecipient = async (id: number) => {
     await api.deleteRecipient(id);
+    setConfirmDelete(null);
     load();
   };
 
@@ -60,7 +61,15 @@ export default function Settings() {
                   <span style={{ fontWeight: 500 }}>{r.label}</span>
                   <span style={{ color: '#64748b', marginLeft: 8, fontSize: 14 }}>{r.email}</span>
                 </div>
-                <button className="btn-danger btn-sm" onClick={() => deleteRecipient(r.id, r.label)}>Remove</button>
+                {confirmDelete === r.id ? (
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <span style={{ fontSize: 13, color: '#64748b' }}>Remove?</span>
+                    <button className="btn-danger btn-sm" onClick={() => deleteRecipient(r.id)}>Yes</button>
+                    <button className="btn-ghost btn-sm" onClick={() => setConfirmDelete(null)}>No</button>
+                  </div>
+                ) : (
+                  <button className="btn-danger btn-sm" onClick={() => setConfirmDelete(r.id)}>Remove</button>
+                )}
               </div>
             ))}
           </div>
