@@ -1,5 +1,6 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { api, Recipient, Site } from '../lib/api';
+import MathConfirmModal from '../components/MathConfirmModal';
 
 export default function Settings() {
   const [recipients, setRecipients] = useState<Recipient[]>([]);
@@ -32,7 +33,11 @@ export default function Settings() {
   };
 
   const deleteRecipient = async (id: number) => {
-    await api.deleteRecipient(id);
+    try {
+      await api.deleteRecipient(id);
+    } catch (err: any) {
+      alert(err.message);
+    }
     setConfirmDelete(null);
     load();
   };
@@ -50,9 +55,31 @@ export default function Settings() {
     }
   };
 
+  const confirmingRecipient = confirmDelete !== null ? recipients.find((r) => r.id === confirmDelete) ?? null : null;
+  const affectedFilters = confirmDelete !== null
+    ? sites.flatMap((s) =>
+        (s.filters ?? []).filter((f) => f.recipientId === confirmDelete && !f.archivedAt)
+          .map((f) => ({ site: s.name, keyword: f.keyword || '(any new listing)' }))
+      )
+    : [];
+
   return (
     <div className="page">
       <h1 className="page-title">Settings</h1>
+
+      {confirmingRecipient && (
+        <MathConfirmModal
+          title={`Remove ${confirmingRecipient.label}?`}
+          description={
+            affectedFilters.length > 0
+              ? `This will permanently delete ${confirmingRecipient.email} and ${affectedFilters.length} alert${affectedFilters.length > 1 ? 's' : ''} associated with them.`
+              : `This will permanently delete ${confirmingRecipient.email}. No alerts are set up for this recipient.`
+          }
+          confirmLabel="Remove"
+          onConfirm={() => deleteRecipient(confirmDelete!)}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
 
       <div className="card" style={{ marginBottom: 20 }}>
         <h2 style={{ fontWeight: 700, fontSize: 16, marginBottom: 16 }}>Recipients</h2>
@@ -70,35 +97,6 @@ export default function Settings() {
             ))}
           </div>
         )}
-
-        {confirmDelete !== null && (() => {
-          const r = recipients.find((r) => r.id === confirmDelete)!;
-          const affectedFilters = sites.flatMap((s) =>
-            (s.filters ?? []).filter((f) => f.recipientId === confirmDelete && !f.archivedAt)
-              .map((f) => ({ site: s.name, keyword: f.keyword || '(any new listing)' }))
-          );
-          return (
-            <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: 14, marginBottom: 16 }}>
-              <p style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>Remove {r.label} ({r.email})?</p>
-              {affectedFilters.length > 0 ? (
-                <>
-                  <p style={{ fontSize: 13, color: '#64748b', marginBottom: 8 }}>This will also delete {affectedFilters.length} alert{affectedFilters.length > 1 ? 's' : ''}:</p>
-                  <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 3, marginBottom: 12 }}>
-                    {affectedFilters.map((f, i) => (
-                      <li key={i} style={{ fontSize: 13, color: '#64748b' }}>• <strong>{f.site}</strong> — keyword: <em>{f.keyword}</em></li>
-                    ))}
-                  </ul>
-                </>
-              ) : (
-                <p style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>No alerts are set up for this recipient.</p>
-              )}
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button className="btn-danger btn-sm" onClick={() => deleteRecipient(confirmDelete)}>Yes, remove</button>
-                <button className="btn-ghost btn-sm" onClick={() => setConfirmDelete(null)}>Cancel</button>
-              </div>
-            </div>
-          );
-        })()}
 
         <form onSubmit={addRecipient} style={{ display: 'flex', gap: 8 }}>
           <div style={{ flex: 1 }}>

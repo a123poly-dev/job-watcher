@@ -23,8 +23,11 @@ router.post('/', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   const id = parseInt(req.params.id);
   try {
-    // Archive all filters for this recipient first to avoid foreign key errors
-    await prisma.filter.updateMany({ where: { recipientId: id }, data: { archivedAt: new Date(), isActive: false } });
+    // Must delete in FK order: notification logs → filters → recipient
+    const filters = await prisma.filter.findMany({ where: { recipientId: id }, select: { id: true } });
+    const filterIds = filters.map((filter) => filter.id);
+    await prisma.notificationLogEntry.deleteMany({ where: { filterId: { in: filterIds } } });
+    await prisma.filter.deleteMany({ where: { recipientId: id } });
     await prisma.recipient.delete({ where: { id } });
     res.json({ ok: true });
   } catch (err: any) {
