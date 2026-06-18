@@ -14,10 +14,21 @@ async function fetchAndExtract(site: { url: string; renderMode: string }) {
 
   if (site.renderMode === 'browser') {
     const { chromium } = await import('playwright');
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
     const page = await browser.newPage();
-    await page.goto(site.url, { waitUntil: 'networkidle', timeout: 30000 });
-    html = await page.content();
+    try {
+      await page.goto(site.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForTimeout(2000); // let JS settle
+      html = await page.content();
+    } catch {
+      // Browser crashed or timed out — fall back to static fetch
+      await browser.close();
+      const { data } = await axios.get(site.url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; JobWatcher/1.0)' },
+        timeout: 15000,
+      });
+      return extractListingsHeuristic(data, site.url);
+    }
     await browser.close();
   } else {
     try {
@@ -34,9 +45,10 @@ async function fetchAndExtract(site: { url: string; renderMode: string }) {
     } catch {
       // Fall back to Playwright
       const { chromium } = await import('playwright');
-      const browser = await chromium.launch({ headless: true });
+      const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
       const page = await browser.newPage();
-      await page.goto(site.url, { waitUntil: 'networkidle', timeout: 30000 });
+      await page.goto(site.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForTimeout(2000);
       html = await page.content();
       await browser.close();
 
