@@ -14,6 +14,10 @@ import { runAllChecks } from './checker';
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001');
 const CHECK_INTERVAL_MINUTES = parseInt(process.env.CHECK_INTERVAL_MINUTES || '180');
+const isProd = process.env.NODE_ENV === 'production';
+
+// Railway (and most PaaS) sit behind a reverse proxy — required for secure cookies to work
+if (isProd) app.set('trust proxy', 1);
 
 app.use(express.json());
 app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173', credentials: true }));
@@ -22,7 +26,12 @@ app.use(
     secret: process.env.SESSION_SECRET || 'job-watcher-secret-change-me',
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: process.env.NODE_ENV === 'production', httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 },
+    cookie: {
+      secure: isProd,
+      httpOnly: true,
+      sameSite: isProd ? 'none' : 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    },
   })
 );
 
