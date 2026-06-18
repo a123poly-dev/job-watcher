@@ -346,8 +346,8 @@ export default function Dashboard() {
       )}
 
       {/* Modals */}
-      {showAdd && <AddSiteModal onClose={() => setShowAdd(false)} onSaved={() => { setShowAdd(false); load(); }} />}
-      {showBulk && <BulkImportModal onClose={() => setShowBulk(false)} onDone={() => { setShowBulk(false); load(); }} />}
+      {showAdd && <AddSiteModal existingSites={sites} onClose={() => setShowAdd(false)} onSaved={() => { setShowAdd(false); load(); }} />}
+      {showBulk && <BulkImportModal existingSites={sites} onClose={() => setShowBulk(false)} onDone={() => { setShowBulk(false); load(); }} />}
       {showBulkFilter && <BulkFilterModal sites={selectedSites} recipients={recipients} onClose={() => setShowBulkFilter(false)} onDone={() => { setShowBulkFilter(false); clearAll(); load(); }} />}
 
       {deleteTarget && (
