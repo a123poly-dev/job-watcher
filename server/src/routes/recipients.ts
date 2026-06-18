@@ -22,8 +22,14 @@ router.post('/', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   const id = parseInt(req.params.id);
-  await prisma.recipient.delete({ where: { id } });
-  res.json({ ok: true });
+  try {
+    // Archive all filters for this recipient first to avoid foreign key errors
+    await prisma.filter.updateMany({ where: { recipientId: id }, data: { archivedAt: new Date(), isActive: false } });
+    await prisma.recipient.delete({ where: { id } });
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || String(err) });
+  }
 });
 
 router.post('/test-email', async (req, res) => {
