@@ -77,7 +77,10 @@ export default function AddSiteModal({ existingSites, onClose, onSaved }: Props)
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 20 }}>
         <div className="card" style={{ width: '100%', maxWidth: 540 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <div>
+            <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 2 }}>Step 2 of 2</p>
             <h2 style={{ fontSize: 18, fontWeight: 700 }}>Add alerts for {name}</h2>
+          </div>
             <button className="btn-ghost btn-sm" onClick={onSaved}>✕</button>
           </div>
           <p style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>Optional — set up keyword alerts now, or skip and add them later from the company page.</p>
@@ -122,7 +125,10 @@ export default function AddSiteModal({ existingSites, onClose, onSaved }: Props)
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 20 }}>
       <div className="card" style={{ width: '100%', maxWidth: 540 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 700 }}>Add company</h2>
+          <div>
+            <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 2 }}>Step 1 of 2</p>
+            <h2 style={{ fontSize: 18, fontWeight: 700 }}>Add company</h2>
+          </div>
           <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
         </div>
 
