@@ -37,12 +37,13 @@ input, select, textarea {
   font-size: 14px;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
-  padding: 8px 20px 8px 10px;
+  padding: 8px 10px;
   width: 100%;
   background: white;
   outline: none;
   transition: border-color 0.15s;
 }
+select { padding-right: 30px; }
 input:focus, select:focus, textarea:focus { border-color: #2563eb; }
 
 label { font-size: 13px; font-weight: 500; color: #475569; display: block; margin-bottom: 4px; }
