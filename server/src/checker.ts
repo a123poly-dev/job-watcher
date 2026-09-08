@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import axios from 'axios';
+import type { Browser } from 'playwright';
 import prisma from './db';
 import { scrapeBrowser } from './scraper/browser';
 import { extractListingsHeuristic } from './scraper/heuristic';
@@ -9,95 +10,101 @@ function fingerprint(title: string, url: string) {
   return crypto.createHash('md5').update(`${title}|${url}`).digest('hex');
 }
 
-async function fetchAndExtract(site: { url: string; renderMode: string }) {
-  let html: string;
-  let usedBrowser = site.renderMode === 'browser';
-
-  if (site.renderMode === 'browser') {
-    const { chromium } = await import('playwright');
-    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
-    const page = await browser.newPage();
-    try {
-      await page.goto(site.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await page.waitForTimeout(2000); // let JS settle
-      // Wait for any client-side data fetches (e.g. Greenhouse widget) to finish
-      await page.waitForLoadState('networkidle', { timeout: 6000 }).catch(() => {});
-      html = await page.content();
-    } catch {
-      // Browser crashed or timed out — fall back to static fetch
-      await browser.close();
-      const { data } = await axios.get(site.url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; JobWatcher/1.0)' },
-        timeout: 15000,
-      });
-      return extractListingsHeuristic(data, site.url);
-    }
-    await browser.close();
-  } else {
-    try {
-      const { data } = await axios.get(site.url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; JobWatcher/1.0)' },
-        timeout: 15000,
-      });
-      html = data;
-
-      // If page looks empty/shell or is a client-side SPA, retry with browser
-      const isSpaShell = typeof html === 'string' && (
-        html.includes('__NEXT_DATA__') ||       // Next.js
-        html.includes('data-reactroot') ||       // React
-        html.includes('window.__nuxt__') ||      // Nuxt.js
-        html.includes('id="__gatsby"')           // Gatsby
-      );
-      if (typeof html !== 'string' || html.length < 1000 || isSpaShell) {
-        throw new Error('Page content too short or SPA shell, likely JS-rendered');
-      }
-    } catch {
-      // Fall back to Playwright
-      const { chromium } = await import('playwright');
-      const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
-      const page = await browser.newPage();
-      await page.goto(site.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await page.waitForTimeout(2000);
-      await page.waitForLoadState('networkidle', { timeout: 6000 }).catch(() => {});
-      html = await page.content();
-      await browser.close();
-      usedBrowser = true;
-
-      // Remember this site needs browser mode
-      await prisma.site.updateMany({
-        where: { url: site.url },
-        data: { renderMode: 'browser' },
-      });
-    }
-  }
-
-  const listings = extractListingsHeuristic(html, site.url);
-
-  // If static mode returned 0 listings, do a one-time browser probe to check
-  // whether JS is needed to render jobs (e.g. Greenhouse XHR, non-SPA embeds).
-  // If browser finds listings, permanently upgrade the site to browser mode.
-  if (listings.length === 0 && !usedBrowser) {
-    try {
-      const { chromium } = await import('playwright');
-      const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
-      const page = await browser.newPage();
-      await page.goto(site.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await page.waitForTimeout(2000);
-      await page.waitForLoadState('networkidle', { timeout: 6000 }).catch(() => {});
-      const browserHtml = await page.content();
-      await browser.close();
-      const browserListings = extractListingsHeuristic(browserHtml, site.url);
-      if (browserListings.length > 0) {
-        await prisma.site.updateMany({ where: { url: site.url }, data: { renderMode: 'browser' } });
-        return browserListings;
-      }
-    } catch { /* browser probe failed — proceed with 0 */ }
-  }
-
-  return listings;
+async function launchBrowser(): Promise<Browser> {
+  const { chromium } = await import('playwright');
+  return chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
 }
 
-export async function checkSite(siteId: number) {
+// Fetch a URL using an existing browser (opens a new page, closes it after).
+// Using a shared browser avoids the overhead and process-limit issues of
+// launching/destroying Chromium for every single site.
+async function fetchPageHtml(browser: Browser, url: string): Promise<string> {
+  const page = await browser.newPage();
+  try {
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(2000);
+    await page.waitForLoadState('networkidle', { timeout: 6000 }).catch(() => {});
+    return await page.content();
+  } finally {
+    await page.close();
+  }
+}
+
+// sharedBrowser: passed by runAllChecks so all sites share one Chromium process.
+// When undefined (single-site check from the API), a private browser is launched.
+async function fetchAndExtract(
+  site: { url: string; renderMode: string },
+  sharedBrowser?: Browser,
+): Promise<ReturnType<typeof extractListingsHeuristic>> {
+  let html: string;
+  let usedBrowser = site.renderMode === 'browser';
+  let ownBrowser: Browser | undefined;
+
+  const getBrowser = async (): Promise<Browser> => {
+    if (sharedBrowser) return sharedBrowser;
+    if (!ownBrowser) ownBrowser = await launchBrowser();
+    return ownBrowser;
+  };
+
+  try {
+    if (site.renderMode === 'browser') {
+      try {
+        html = await fetchPageHtml(await getBrowser(), site.url);
+      } catch {
+        // Browser crashed — fall back to static fetch
+        const { data } = await axios.get(site.url, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; JobWatcher/1.0)' },
+          timeout: 15000,
+        });
+        return extractListingsHeuristic(data, site.url);
+      }
+    } else {
+      try {
+        const { data } = await axios.get(site.url, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; JobWatcher/1.0)' },
+          timeout: 15000,
+        });
+        html = data;
+
+        // Detect client-side SPA shells — jobs won't be in the static HTML
+        const isSpaShell = typeof html === 'string' && (
+          html.includes('__NEXT_DATA__') ||
+          html.includes('data-reactroot') ||
+          html.includes('window.__nuxt__') ||
+          html.includes('id="__gatsby"')
+        );
+        if (typeof html !== 'string' || html.length < 1000 || isSpaShell) {
+          throw new Error('SPA shell or too short');
+        }
+      } catch {
+        html = await fetchPageHtml(await getBrowser(), site.url);
+        usedBrowser = true;
+        await prisma.site.updateMany({ where: { url: site.url }, data: { renderMode: 'browser' } });
+      }
+    }
+
+    const listings = extractListingsHeuristic(html, site.url);
+
+    // If static returned 0, probe with browser once to check for JS-rendered jobs.
+    if (listings.length === 0 && !usedBrowser) {
+      try {
+        const browserHtml = await fetchPageHtml(await getBrowser(), site.url);
+        const browserListings = extractListingsHeuristic(browserHtml, site.url);
+        if (browserListings.length > 0) {
+          await prisma.site.updateMany({ where: { url: site.url }, data: { renderMode: 'browser' } });
+          return browserListings;
+        }
+      } catch { /* probe failed — return 0 */ }
+    }
+
+    return listings;
+  } finally {
+    // Only close a browser we personally launched; never close the shared one.
+    await ownBrowser?.close();
+  }
+}
+
+export async function checkSite(siteId: number, sharedBrowser?: Browser) {
   const site = await prisma.site.findUnique({
     where: { id: siteId },
     include: {
@@ -111,7 +118,7 @@ export async function checkSite(siteId: number) {
   if (!site || site.archivedAt) return;
 
   try {
-    const listings = await fetchAndExtract(site);
+    const listings = await fetchAndExtract(site, sharedBrowser);
 
     // Filter scraped listings to only those matching active keyword filters.
     // If all filters have blank keywords (= "any"), keep everything.
@@ -198,7 +205,14 @@ export async function checkSite(siteId: number) {
 export async function runAllChecks() {
   const sites = await prisma.site.findMany({ where: { archivedAt: null } });
   console.log(`[checker] Running checks for ${sites.length} sites`);
-  for (const site of sites) {
-    await checkSite(site.id);
+  // Use a single shared browser for all sites to avoid spawning/destroying
+  // Chromium for every check (causes EAGAIN on resource-constrained hosts).
+  const browser = await launchBrowser();
+  try {
+    for (const site of sites) {
+      await checkSite(site.id, browser);
+    }
+  } finally {
+    await browser.close();
   }
 }
