@@ -1,6 +1,51 @@
 import * as cheerio from 'cheerio';
 import type { Listing } from './static';
 
+// ─── __NEXT_DATA__ / Greenhouse JSON extractor ───────────────────────────────
+// Some Next.js career sites (e.g. Nebius via Greenhouse) embed all job data in
+// a <script id="__NEXT_DATA__"> block. Jobs have absolute_url + title fields.
+// Reading them directly avoids both browser rendering and the link extractor.
+function extractFromNextData(html: string, pageUrl: string): Listing[] {
+  const match = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
+  if (!match) return [];
+  try {
+    const data = JSON.parse(match[1]);
+    const pageProps = data?.props?.pageProps ?? {};
+    const results: Listing[] = [];
+    const seen = new Set<string>();
+
+    // Walk every value in pageProps looking for arrays of Greenhouse job objects
+    // (objects with both absolute_url: string and title: string).
+    function walk(node: unknown) {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) {
+        for (const item of node) {
+          if (
+            item && typeof item === 'object' &&
+            typeof item.title === 'string' &&
+            typeof item.absolute_url === 'string' &&
+            item.absolute_url.startsWith('http')
+          ) {
+            const title = (item.title as string).replace(/\s+/g, ' ').trim();
+            const url = item.absolute_url as string;
+            if (title && url && !seen.has(url)) {
+              seen.add(url);
+              results.push({ title, url });
+            }
+          }
+          walk(item);
+        }
+      } else {
+        for (const val of Object.values(node as object)) walk(val);
+      }
+    }
+    walk(pageProps);
+    return results;
+  } catch {
+    return [];
+  }
+}
+
 // ─── Blocked domains ────────────────────────────────────────────────────────
 // Social / noise domains that are never job postings
 const BLOCKED_DOMAINS = new Set([
@@ -109,7 +154,16 @@ function isJobLink(url: string, pageUrl: string): boolean {
     const isSameOrigin = u.hostname === pageHost;
 
     if (isSameOrigin) {
-      return pathDepth(url) > pathDepth(pageUrl);
+      if (pathDepth(url) > pathDepth(pageUrl)) return true;
+      // Some career sites host individual jobs via query params on the root URL
+      // (e.g. careers.nebius.com/?gh_jid=4825124101). Same path depth, but the
+      // query string carries a long numeric job ID — treat those as job links.
+      if (pathDepth(url) === pathDepth(pageUrl)) {
+        for (const val of u.searchParams.values()) {
+          if (/^\d{6,}$/.test(val)) return true;
+        }
+      }
+      return false;
     }
 
     if (isJobPlatform(u.hostname)) {
@@ -130,6 +184,17 @@ export function extractListingsHeuristic(html: string, pageUrl: string): Listing
   const pageNorm = normaliseUrl(pageUrl, pageUrl);
   const seen = new Set<string>();
   const results: Listing[] = [];
+
+  // ─── __NEXT_DATA__ pre-pass ──────────────────────────────────────────────────
+  // Extract jobs embedded as Greenhouse JSON in Next.js SSR data. This handles
+  // sites like Nebius where job URLs use query params (?gh_jid=...) on the root
+  // path — the same depth as the page URL, so the link extractor would miss them.
+  for (const listing of extractFromNextData(html, pageUrl)) {
+    if (!seen.has(listing.url)) {
+      seen.add(listing.url);
+      results.push(listing);
+    }
+  }
 
   // ─── ATS widget pre-passes (must run BEFORE DOM cleanup) ────────────────────
   // Some ATS widgets place job titles inside <header> and apply links inside
