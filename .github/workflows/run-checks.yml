@@ -1,0 +1,16 @@
+name: Run job checks
+
+on:
+  schedule:
+    - cron: '0 */3 * * *'
+  workflow_dispatch:
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger check run
+        run: |
+          curl --fail-with-body --silent --show-error --max-time 30 \
+            -X POST "https://job-watcher-production-d9fc.up.railway.app/api/cron/run" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
