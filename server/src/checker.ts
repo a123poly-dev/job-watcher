@@ -15,12 +15,16 @@ async function launchBrowser(): Promise<Browser> {
   return chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
 }
 
-// Fetch a URL using an existing browser (opens a new page, closes it after).
-// Using a shared browser avoids the overhead and process-limit issues of
-// launching/destroying Chromium for every single site.
+type BrowserProvider = () => Promise<Browser>;
+
+const BLOCKED_RESOURCE_TYPES = new Set(['image', 'font', 'media']);
+
 async function fetchPageHtml(browser: Browser, url: string): Promise<string> {
   const page = await browser.newPage();
   try {
+    await page.route('**/*', (route) =>
+      BLOCKED_RESOURCE_TYPES.has(route.request().resourceType()) ? route.abort() : route.continue()
+    );
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(2000);
     await page.waitForLoadState('networkidle', { timeout: 6000 }).catch(() => {});
@@ -30,21 +34,40 @@ async function fetchPageHtml(browser: Browser, url: string): Promise<string> {
   }
 }
 
-// sharedBrowser: passed by runAllChecks so all sites share one Chromium process.
-// When undefined (single-site check from the API), a private browser is launched.
+// Returns a lazy provider that launches Chromium on first use, plus a close()
+// that shuts it down only if it was actually launched.
+function createLazyBrowser(): { getBrowser: BrowserProvider; close: () => Promise<void> } {
+  let browserPromise: Promise<Browser> | undefined;
+  return {
+    getBrowser: () => {
+      if (browserPromise) return browserPromise;
+      // A failed launch is not cached, so the next site can retry.
+      const launching: Promise<Browser> = launchBrowser().catch((err) => {
+        browserPromise = undefined;
+        throw err;
+      });
+      browserPromise = launching;
+      return launching;
+    },
+    close: async () => {
+      if (!browserPromise) return;
+      const pending = browserPromise;
+      browserPromise = undefined;
+      await (await pending.catch(() => undefined))?.close();
+    },
+  };
+}
+
+// sharedGetBrowser: passed by runAllChecks so all sites share one lazily-launched
+// Chromium. When undefined (single-site check from the API), a private one is used.
 async function fetchAndExtract(
   site: { url: string; renderMode: string },
-  sharedBrowser?: Browser,
+  sharedGetBrowser?: BrowserProvider,
 ): Promise<ReturnType<typeof extractListingsHeuristic>> {
   let html: string;
   let usedBrowser = site.renderMode === 'browser';
-  let ownBrowser: Browser | undefined;
-
-  const getBrowser = async (): Promise<Browser> => {
-    if (sharedBrowser) return sharedBrowser;
-    if (!ownBrowser) ownBrowser = await launchBrowser();
-    return ownBrowser;
-  };
+  const ownBrowser = sharedGetBrowser ? undefined : createLazyBrowser();
+  const getBrowser = sharedGetBrowser ?? ownBrowser!.getBrowser;
 
   try {
     if (site.renderMode === 'browser') {
@@ -99,12 +122,11 @@ async function fetchAndExtract(
 
     return listings;
   } finally {
-    // Only close a browser we personally launched; never close the shared one.
     await ownBrowser?.close();
   }
 }
 
-export async function checkSite(siteId: number, sharedBrowser?: Browser) {
+export async function checkSite(siteId: number, sharedGetBrowser?: BrowserProvider) {
   const site = await prisma.site.findUnique({
     where: { id: siteId },
     include: {
@@ -118,7 +140,7 @@ export async function checkSite(siteId: number, sharedBrowser?: Browser) {
   if (!site || site.archivedAt) return;
 
   try {
-    const listings = await fetchAndExtract(site, sharedBrowser);
+    const listings = await fetchAndExtract(site, sharedGetBrowser);
 
     // Filter scraped listings to only those matching active keyword filters.
     // If all filters have blank keywords (= "any"), keep everything.
@@ -205,14 +227,13 @@ export async function checkSite(siteId: number, sharedBrowser?: Browser) {
 export async function runAllChecks() {
   const sites = await prisma.site.findMany({ where: { archivedAt: null } });
   console.log(`[checker] Running checks for ${sites.length} sites`);
-  // Use a single shared browser for all sites to avoid spawning/destroying
-  // Chromium for every check (causes EAGAIN on resource-constrained hosts).
-  const browser = await launchBrowser();
+  // One Chromium for the whole run, launched only if some site needs it.
+  const lazyBrowser = createLazyBrowser();
   try {
     for (const site of sites) {
-      await checkSite(site.id, browser);
+      await checkSite(site.id, lazyBrowser.getBrowser);
     }
   } finally {
-    await browser.close();
+    await lazyBrowser.close();
   }
 }
